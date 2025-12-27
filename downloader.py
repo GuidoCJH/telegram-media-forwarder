@@ -52,13 +52,14 @@ def download_media(url):
             # Intentar descarga con opciones por defecto (mejor calidad / posible fusión)
             filename, title = run_download(ydl_opts)
         except Exception as e:
-            # Si falla por falta de FFMPEG (error de fusión), reintentar con 'best' (un solo archivo)
-            if "ffmpeg" in str(e).lower() and "merge" in str(e).lower():
-                logger.warning("⚠️ FFMPEG no detectado. Reintentando con formato 'best' (sin fusión)...")
+            # Detectar error de FFMPEG (en inglés o español)
+            error_str = str(e).lower()
+            if any(x in error_str for x in ["ffmpeg", "merge", "fusión", "fusion"]):
+                logger.warning(f"⚠️ Error de formato/FFMPEG detectado: {e}. Reintentando con formato 'best'...")
                 ydl_opts['format'] = 'best'
                 filename, title = run_download(ydl_opts)
             else:
-                raise e # Si es otro error, lanzarlo
+                raise e # Si es otro error ajeno a formatos, lanzarlo
             
         # Determinar tipo
         ext = os.path.splitext(filename)[1].lower()
