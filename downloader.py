@@ -29,9 +29,16 @@ def download_media(url):
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     }
 
-    # Ajustes específicos para Instagram/TikTok (a veces requieren cookies o user agent)
-    if "instagram.com" in url or "tiktok.com" in url:
+    # Estrategia de formato según el sitio
+    if "music.youtube.com" in url:
+        # YouTube Music: Priorizar audio
+        ydl_opts['format'] = 'bestaudio/best'
+    elif "instagram.com" in url or "tiktok.com" in url:
+        # Instagram/TikTok: Formato simple
         ydl_opts['format'] = 'best'
+    else:
+        # Otros (YouTube normal, etc): Intentar mejor calidad con fallbacks
+        ydl_opts['format'] = 'bestvideo+bestaudio/best/bestvideo/bestaudio'
 
     def run_download(options):
         with yt_dlp.YoutubeDL(options) as ydl:
@@ -52,14 +59,22 @@ def download_media(url):
             # Intentar descarga con opciones por defecto (mejor calidad / posible fusión)
             filename, title = run_download(ydl_opts)
         except Exception as e:
-            # Detectar error de FFMPEG (en inglés o español)
             error_str = str(e).lower()
+            
+            # Detectar error de FFMPEG (fusión)
             if any(x in error_str for x in ["ffmpeg", "merge", "fusión", "fusion"]):
-                logger.warning(f"⚠️ Error de formato/FFMPEG detectado: {e}. Reintentando con formato 'best'...")
+                logger.warning(f"⚠️ Error de FFMPEG. Reintentando con formato simple...")
                 ydl_opts['format'] = 'best'
                 filename, title = run_download(ydl_opts)
+            
+            # Detectar error de formato no disponible
+            elif any(x in error_str for x in ["formato", "format", "available", "disponible"]):
+                logger.warning(f"⚠️ Formato no disponible. Intentando formato alternativo...")
+                ydl_opts['format'] = 'worst'  # Último recurso: peor calidad pero disponible
+                filename, title = run_download(ydl_opts)
+            
             else:
-                raise e # Si es otro error ajeno a formatos, lanzarlo
+                raise e  # Otro error no relacionado con formatos
             
         # Determinar tipo
         ext = os.path.splitext(filename)[1].lower()
