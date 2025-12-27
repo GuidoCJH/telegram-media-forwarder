@@ -11,6 +11,7 @@ from telegram import Update
 from telegram.ext import (
     Application,
     MessageHandler,
+    CommandHandler,
     filters,
     ContextTypes
 )
@@ -61,8 +62,9 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Verificar que el mensaje viene del canal/grupo origen
-    if message.chat_id != SOURCE_CHAT_ID:
-        return
+    # (DESACTIVADO: Permitir acceso universal desde DMs u otros grupos)
+    # if message.chat_id != SOURCE_CHAT_ID:
+    #     return
     
     try:
         # Determinar el tipo de medio
@@ -99,9 +101,9 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
         
-    # Verificar origen
-    if message.chat_id != SOURCE_CHAT_ID:
-        return
+    # Verificar origen (DESACTIVADO para acceso universal)
+    # if message.chat_id != SOURCE_CHAT_ID:
+    #    return
 
     text = message.text.lower()
     
@@ -176,18 +178,38 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Error: {context.error}")
 
 
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el comando /start: Bienvenida y Chequeo de Estado."""
+    user = update.effective_user
+    welcome_msg = (
+        f"👋 ¡Hola {user.first_name}!\n\n"
+        f"🤖 **Bot de Reenvío y Descarga ACTIVO**\n\n"
+        f"✅ **Estado:** En línea y funcionando.\n"
+        f"📤 **Destino:** Los archivos se enviarán al canal configurado.\n\n"
+        f"**Funciones:**\n"
+        f"1. 📨 **Reenvío:** Envíame fotos, videos o documentos y los subiré al canal.\n"
+        f"2. 🔗 **Descargas:** Envíame enlaces de TikTok, YouTube, Instagram o Spotify.\n\n"
+        f"¡Empieza a enviar contenido!"
+    )
+    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+
+
 def main():
     """Inicia el bot."""
     if not BOT_TOKEN:
         logger.error("❌ BOT_TOKEN no configurado. Revisa tu archivo .env")
         return
     
-    if not SOURCE_CHAT_ID or not DESTINATION_CHAT_ID:
-        logger.error("❌ SOURCE_CHAT_ID o DESTINATION_CHAT_ID no configurados")
+    # Nota: SOURCE_CHAT_ID ya no es estricto para recibir, pero DESTINATION_CHAT_ID sí es necesario para enviar.
+    if not DESTINATION_CHAT_ID:
+        logger.error("❌ DESTINATION_CHAT_ID no configurado")
         return
     
     # Crear aplicación
     application = Application.builder().token(BOT_TOKEN).build()
+
+    # Añadir handler para comando /start
+    application.add_handler(CommandHandler("start", start_command))
     
     # Filtro combinado para fotos, videos y documentos
     media_filter = (
