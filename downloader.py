@@ -6,6 +6,8 @@ import subprocess
 import httpx
 import yt_dlp
 import json
+import tempfile
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -81,68 +83,68 @@ def download_tiktok_slideshow_tikwm(url, temp_dir, unique_id):
         logger.error(f"❌ Error en TikWM: {e}")
         raise e
 
-def download_instagram_via_api(url, temp_dir, unique_id):
+def download_instagram_via_instaloader(url, temp_dir, unique_id):
     """
-    Descarga media de Instagram usando APIs de terceros (SaveIG/SnapInsta) 
+    Descarga media de Instagram usando instaloader (sin login)
     para saltar el bloqueo de contenido sensible.
     """
-    logger.info("📸 Usando API de respaldo para Instagram (Sensitive Content Bypass)...")
+    logger.info("📸 Usando Instaloader para Instagram (Sensitive Content Bypass)...")
     
-    # Lista de posibles endpoints para SaveIG
-    api_endpoints = [
-        "https://api.v02.saveig.app/api/info",
-        "https://v3.saveig.app/api/info"
-    ]
-    
-    for api_url in api_endpoints:
-        try:
-            full_url = f"{api_url}?url={url}"
-            logger.debug(f"🔍 Probando API: {api_url}")
+    try:
+        import instaloader
+        
+        # Extraer el shortcode de la URL
+        match = re.search(r'/p/([A-Za-z0-9_-]+)', url)
+        if not match:
+            logger.error("⚠️ No se pudo extraer el shortcode de la URL")
+            return None, None
             
-            with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-                resp = client.get(full_url)
-                if resp.status_code != 200:
-                    continue
-                    
-                data = resp.json()
-                # La estructura de SaveIG suele tener 'medias' o 'items'
-                items = data.get('medias') or data.get('items', [])
-                title = data.get('title', 'Instagram Media')
-                
-                if not items:
-                    logger.warning(f"⚠️ API {api_url} no devolvió media.")
-                    continue
-
-                downloaded_files = []
-                for i, item in enumerate(items):
-                    # El campo 'url' suele estar en el item
-                    # Puede ser 'url', 'src', o estar dentro de un objeto
-                    media_url = item.get('url') or item.get('src')
-                    if not media_url:
-                        continue
-                        
-                    # Determinar extensión (Instagram suele usar jpg/mp4)
-                    is_video = item.get('type') == 'video' or '.mp4' in media_url
-                    ext = "mp4" if is_video else "jpg"
-                    
-                    file_path = os.path.join(temp_dir, f"{unique_id}_{i}.{ext}")
-                    
-                    logger.debug(f"⬇️ Bajando media {i+1}/{len(items)}")
-                    r = client.get(media_url)
-                    if r.status_code == 200:
-                        with open(file_path, 'wb') as f:
-                            f.write(r.content)
-                        downloaded_files.append(file_path)
-                
-                if downloaded_files:
-                    logger.info(f"✅ Descargado vía API: {len(downloaded_files)} archivos")
-                    return downloaded_files, title
-                    
-        except Exception as e:
-            logger.warning(f"⚠️ Error consultando API de IG {api_url}: {e}")
-            continue
+        shortcode = match.group(1)
+        logger.info(f"📌 Shortcode detectado: {shortcode}")
+        
+        # Crear instancia de Instaloader sin login
+        L = instaloader.Instaloader(
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=False,
+            compress_json=False,
+            dirname_pattern=temp_dir,
+            filename_pattern=f"{unique_id}_{{counter}}"
+        )
+        
+        # Obtener el post por shortcode
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        
+        # Descargar el post
+        L.download_post(post, target=temp_dir)
+        
+        # Buscar archivos descargados
+        downloaded_files = []
+        for f in sorted(os.listdir(temp_dir)):
+            if f.startswith(unique_id):
+                # Filtrar solo imágenes y videos
+                if f.endswith(('.jpg', '.jpeg', '.png', '.mp4', '.mov')):
+                    downloaded_files.append(os.path.join(temp_dir, f))
+        
+        if downloaded_files:
+            title = post.caption[:100] if post.caption else "Instagram Media"
+            logger.info(f"✅ Descargado vía Instaloader: {len(downloaded_files)} archivos")
+            return downloaded_files, title
+        else:
+            logger.warning("⚠️ No se encontraron archivos después de la descarga")
+            return None, None
             
-    return None, None
+    except ImportError:
+        logger.error("❌ Instaloader no está instalado. Run: pip install instaloader")
+        return None, None
+    except instaloader.exceptions.InstaloaderException as e:
+        logger.error(f"❌ Error de Instaloader: {e}")
+        return None, None
+    except Exception as e:
+        logger.error(f"❌ Error inesperado en Instaloader: {e}")
+        return None, None
 
 def download_media(url):
     """
@@ -270,17 +272,17 @@ def download_media(url):
             continue
 
     # SI LLEGAMOS AQUÍ, YT-DLP FALLÓ.
-    # NUEVO: Si es Instagram, intentar con el motor de API de respaldo
+    # NUEVO: Si es Instagram, intentar con Instaloader de respaldo
     if 'instagram.com' in resolved_url:
         try:
-            downloaded_files, title = download_instagram_via_api(resolved_url, temp_dir, unique_id)
+            downloaded_files, title = download_instagram_via_instaloader(resolved_url, temp_dir, unique_id)
             if downloaded_files:
                 # Determinar tipo
                 ext = os.path.splitext(downloaded_files[0])[1].lower()
                 media_type = 'video' if ext == '.mp4' else 'photo'
                 return downloaded_files, media_type, title
         except Exception as api_err:
-            logger.error(f"❌ El motor de API de Instagram también falló: {api_err}")
+            logger.error(f"❌ El motor de Instaloader también falló: {api_err}")
 
     # Si llegamos aquí, todos los intentos fallaron
     logger.error(f"❌ Error descargando después de {len(format_strategies)} intentos")
