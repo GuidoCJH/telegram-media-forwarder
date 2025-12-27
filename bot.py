@@ -14,6 +14,15 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
+from downloader import download_media
+
+# Dominios soportados
+SUPPORTED_DOMAINS = [
+    'tiktok.com', 'vm.tiktok.com',
+    'youtube.com', 'youtu.be',
+    'instagram.com',
+    'open.spotify.com'
+]
 
 # Configurar logging
 logging.basicConfig(
@@ -80,7 +89,87 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"❌ Error CRÍTICO: No se pudo ni reenviar ni copiar: {e2}")
     
     except Exception as e:
+    except Exception as e:
         logger.error(f"❌ Error general en handle_media: {e}")
+
+
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Detecta enlaces y descarga contenido multimedia."""
+    message = update.message or update.channel_post
+    
+    if not message or not message.text:
+        return
+        
+    # Verificar origen
+    if message.chat_id != SOURCE_CHAT_ID:
+        return
+
+    text = message.text.lower()
+    
+    # Verificar si contiene un link soportado
+    if not any(domain in text for domain in SUPPORTED_DOMAINS):
+        return
+
+    # Extraer URL (simple)
+    url = None
+    for word in message.text.split():
+        if word.startswith('http') and any(d in word for d in SUPPORTED_DOMAINS):
+            url = word
+            break
+            
+    if not url:
+        return
+
+    # Notificar que se está procesando (opcional, solo log)
+    logger.info(f"🔗 Detectado enlace: {url}")
+
+    # Descargar
+    file_path, media_type, title = None, None, None
+    try:
+        # Enviar mensaje de "Procesando..." al log o admin si se desea
+        # await context.bot.send_message(chat_id=DESTINATION_CHAT_ID, text=f"⏳ Procesando: {url}")
+        
+        file_path, media_type, title = download_media(url)
+        
+        if file_path and os.path.exists(file_path):
+            caption = f"🎥 {title}\n🔗 {url}"
+            
+            try:
+                if media_type == 'video':
+                    await context.bot.send_video(
+                        chat_id=DESTINATION_CHAT_ID,
+                        video=open(file_path, 'rb'),
+                        caption=caption,
+                        supports_streaming=True
+                    )
+                elif media_type == 'audio':
+                    await context.bot.send_audio(
+                        chat_id=DESTINATION_CHAT_ID,
+                        audio=open(file_path, 'rb'),
+                        caption=caption
+                    )
+                elif media_type == 'photo':
+                    await context.bot.send_photo(
+                        chat_id=DESTINATION_CHAT_ID,
+                        photo=open(file_path, 'rb'),
+                        caption=caption
+                    )
+                
+                logger.info(f"✅ Contenido descargado enviado a {DESTINATION_CHAT_ID}")
+
+            except Exception as e:
+                logger.error(f"❌ Error enviando archivo a Telegram: {e}")
+        else:
+             logger.warning(f"⚠️ No se pudo descargar contenido de: {url}")
+
+    except Exception as e:
+        logger.error(f"❌ Error en handle_url: {e}")
+    
+    finally:
+        # Limpieza
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"🗑️ Archivo temporal eliminado: {file_path}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -111,6 +200,11 @@ def main():
     # Añadir handler para mensajes con medios
     application.add_handler(
         MessageHandler(media_filter, handle_media)
+    )
+
+    # Añadir handler para enlaces en texto (excluyendo comandos)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url)
     )
     
     # Añadir handler de errores
