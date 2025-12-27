@@ -122,71 +122,118 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Notificar que se está procesando (opcional, solo log)
     logger.info(f"🔗 Detectado enlace: {url}")
+    
+    # Obtener el ID del usuario que pidió el link
+    user_chat_id = update.effective_chat.id
 
     # Descargar
     downloaded_files = None
     try:
-        # await context.bot.send_message(chat_id=DESTINATION_CHAT_ID, text=f"⏳ Procesando: {url}")
-        
         downloaded_files, media_type, title = download_media(url)
         
         if downloaded_files and all(os.path.exists(f) for f in downloaded_files):
             # Caption SIN URL (según solicitud del usuario)
             caption = f"🎥 {title}"
             
-            try:
-                if media_type == 'photo' and len(downloaded_files) > 1:
-                    # TikTok Slideshow: Enviar como álbum de fotos
-                    from telegram import InputMediaPhoto
-                    media_group = []
-                    
-                    for i, file_path in enumerate(downloaded_files[:10]):  # Límite 10 fotos por grupo
-                        media_group.append(
-                            InputMediaPhoto(
-                                media=open(file_path, 'rb'),
-                                caption=caption if i == 0 else None  # Solo primera foto con caption
+            # Función helper para enviar media
+            async def send_media_to_chat(chat_id):
+                """Envía el media al chat especificado."""
+                try:
+                    if media_type == 'photo' and len(downloaded_files) > 1:
+                        # TikTok Slideshow: Enviar como álbum de fotos
+                        from telegram import InputMediaPhoto
+                        media_group = []
+                        
+                        for i, file_path in enumerate(downloaded_files[:10]):  # Límite 10 fotos por grupo
+                            media_group.append(
+                                InputMediaPhoto(
+                                    media=open(file_path, 'rb'),
+                                    caption=caption if i == 0 else None  # Solo primera foto con caption
+                                )
                             )
+                        
+                        await context.bot.send_media_group(
+                            chat_id=chat_id,
+                            media=media_group
                         )
+                        logger.info(f"✅ {len(downloaded_files)} fotos enviadas como álbum a {chat_id}")
                     
-                    await context.bot.send_media_group(
-                        chat_id=DESTINATION_CHAT_ID,
-                        media=media_group
-                    )
-                    logger.info(f"✅ {len(downloaded_files)} fotos enviadas como álbum a {DESTINATION_CHAT_ID}")
+                    elif media_type == 'video':
+                        await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=open(downloaded_files[0], 'rb'),
+                            caption=caption,
+                            supports_streaming=True
+                        )
+                        logger.info(f"✅ Video enviado a {chat_id}")
+                        
+                    elif media_type == 'audio':
+                        await context.bot.send_audio(
+                            chat_id=chat_id,
+                            audio=open(downloaded_files[0], 'rb'),
+                            caption=caption
+                        )
+                        logger.info(f"✅ Audio enviado a {chat_id}")
+                        
+                    elif media_type == 'photo':
+                        # Una sola foto
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=open(downloaded_files[0], 'rb'),
+                            caption=caption
+                        )
+                        logger.info(f"✅ Foto enviada a {chat_id}")
+                    
+                    return True
+                except Exception as e:
+                    logger.error(f"❌ Error enviando archivo a {chat_id}: {e}")
+                    return False
+            
+            # 1. Enviar al usuario que lo pidió
+            user_success = await send_media_to_chat(user_chat_id)
+            
+            # 2. Enviar al canal/grupo destino (si es diferente al usuario)
+            dest_success = False
+            if user_chat_id != DESTINATION_CHAT_ID:
+                dest_success = await send_media_to_chat(DESTINATION_CHAT_ID)
+            else:
+                dest_success = True  # Es el mismo chat
+            
+            # 3. Mensaje de confirmación al usuario
+            if user_success and dest_success:
+                success_msg = "✅ ¡Descarga completada!\n\n"
+                if user_chat_id != DESTINATION_CHAT_ID:
+                    success_msg += f"📤 Enviado a ti y al canal destino"
+                else:
+                    success_msg += f"📤 Enviado correctamente"
                 
-                elif media_type == 'video':
-                    await context.bot.send_video(
-                        chat_id=DESTINATION_CHAT_ID,
-                        video=open(downloaded_files[0], 'rb'),
-                        caption=caption,
-                        supports_streaming=True
-                    )
-                    logger.info(f"✅ Video enviado a {DESTINATION_CHAT_ID}")
-                    
-                elif media_type == 'audio':
-                    await context.bot.send_audio(
-                        chat_id=DESTINATION_CHAT_ID,
-                        audio=open(downloaded_files[0], 'rb'),
-                        caption=caption
-                    )
-                    logger.info(f"✅ Audio enviado a {DESTINATION_CHAT_ID}")
-                    
-                elif media_type == 'photo':
-                    # Una sola foto
-                    await context.bot.send_photo(
-                        chat_id=DESTINATION_CHAT_ID,
-                        photo=open(downloaded_files[0], 'rb'),
-                        caption=caption
-                    )
-                    logger.info(f"✅ Foto enviada a {DESTINATION_CHAT_ID}")
-
-            except Exception as e:
-                logger.error(f"❌ Error enviando archivo a Telegram: {e}")
+                await context.bot.send_message(
+                    chat_id=user_chat_id,
+                    text=success_msg
+                )
+            elif user_success:
+                await context.bot.send_message(
+                    chat_id=user_chat_id,
+                    text="✅ Descarga completada y enviada a ti\n⚠️ Error enviando al canal destino"
+                )
         else:
              logger.warning(f"⚠️ No se pudo descargar contenido de: {url}")
+             # Notificar al usuario del error
+             await context.bot.send_message(
+                 chat_id=user_chat_id,
+                 text=f"❌ No se pudo descargar el contenido de este link.\n\nPosibles razones:\n• Contenido privado o restringido\n• Link inválido\n• Plataforma no soportada"
+             )
 
     except Exception as e:
         logger.error(f"❌ Error en handle_url: {e}")
+        # Notificar al usuario del error
+        try:
+            await context.bot.send_message(
+                chat_id=user_chat_id,
+                text=f"❌ Error procesando el link:\n{str(e)[:200]}"
+            )
+        except:
+            pass
     
     finally:
         # Limpieza de todos los archivos descargados
