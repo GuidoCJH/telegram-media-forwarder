@@ -17,10 +17,9 @@ from telegram.ext import (
 )
 from downloader import download_media
 
-# Dominios soportados
+# Dominios soportados (Solo TikTok, Instagram, Spotify)
 SUPPORTED_DOMAINS = [
     'tiktok.com', 'vm.tiktok.com',
-    'youtube.com', 'youtu.be',
     'instagram.com',
     'open.spotify.com'
 ]
