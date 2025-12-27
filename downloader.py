@@ -36,41 +36,49 @@ def is_tiktok_slideshow(url):
     """Detecta si es un slideshow de TikTok basándose en la URL final."""
     return 'tiktok.com' in url and '/photo/' in url
 
-def download_tiktok_slideshow(url, temp_dir, unique_id):
-    """Descarga slideshow TikTok usando gallery-dl."""
-    logger.info("🖼️ Slideshow TikTok detectado. Usando gallery-dl...")
-    
-    # Template de salida para gallery-dl
-    # Usamos un formato específico de gallery-dl para asegurar que los archivos se guarden correctamente
-    cmd = [
-        'gallery-dl',
-        '-o', f'filename={unique_id}_{{num}}.{{extension}}',
-        '-d', temp_dir,
-        url
-    ]
+def download_tiktok_slideshow_tikwm(url, temp_dir, unique_id):
+    """Descarga slideshow TikTok usando la API de TikWM."""
+    logger.info("🖼️ Usando API TikWM para obtener imágenes del slideshow...")
+    api_url = f"https://www.tikwm.com/api/?url={url}"
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
-        if result.returncode == 0:
-            # Buscar archivos descargados
-            downloaded_files = []
-            for f in sorted(os.listdir(temp_dir)):
-                if f.startswith(unique_id):
-                    downloaded_files.append(os.path.join(temp_dir, f))
+        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+            resp = client.get(api_url)
+            data = resp.json()
             
-            if downloaded_files:
-                logger.info(f"✅ gallery-dl descargó {len(downloaded_files)} imágenes")
-                return downloaded_files, "TikTok Slideshow"
-            else:
-                raise Exception("gallery-dl no descargó ningún archivo")
-        else:
-            raise Exception(f"gallery-dl error: {result.stderr}")
-    
-    except subprocess.TimeoutExpired:
-        raise Exception("gallery-dl timeout después de 60s")
-    except FileNotFoundError:
-        raise Exception("gallery-dl no está instalado")
+            if data.get('code') != 0:
+                raise Exception(f"TikWM Error: {data.get('msg')}")
+                
+            media_data = data.get('data', {})
+            images = media_data.get('images', [])
+            title = media_data.get('title', 'TikTok Slideshow')
+            
+            if not images:
+                # Si no hay imágenes en el campo 'images', TikWM a veces devuelve un solo video
+                logger.warning("⚠️ No se encontraron imágenes en el slideshow de TikWM.")
+                return None, None
+
+            downloaded_files = []
+            for i, img_url in enumerate(images):
+                # Usar .jpg como extensión segura para Telegram
+                file_path = os.path.join(temp_dir, f"{unique_id}_{i}.jpg")
+                
+                logger.debug(f"⬇️ Bajando imagen {i+1}/{len(images)}")
+                r = client.get(img_url)
+                if r.status_code == 200:
+                    with open(file_path, 'wb') as f:
+                        f.write(r.content)
+                    downloaded_files.append(file_path)
+            
+            if not downloaded_files:
+                raise Exception("No se pudo descargar ninguna imagen")
+                
+            logger.info(f"✅ Descargadas {len(downloaded_files)} imágenes vía TikWM")
+            return downloaded_files, title
+            
+    except Exception as e:
+        logger.error(f"❌ Error en TikWM: {e}")
+        raise e
 
 def download_media(url):
     """
@@ -85,17 +93,17 @@ def download_media(url):
     # NUEVO: Resolver URL primero para detectar slideshows en links cortos
     resolved_url = resolve_tiktok_url(url)
     
+    # Intentar con TikWM para slideshows de TikTok
     if is_tiktok_slideshow(resolved_url):
         try:
-            downloaded_files, title = download_tiktok_slideshow(resolved_url, temp_dir, unique_id)
-            return downloaded_files, 'photo', title
+            downloaded_files, title = download_tiktok_slideshow_tikwm(resolved_url, temp_dir, unique_id)
+            if downloaded_files:
+                return downloaded_files, 'photo', title
         except Exception as e:
-            logger.error(f"❌ gallery-dl falló: {e}")
-            logger.info("⚠️ Intentando con yt-dlp como fallback...")
-            # Continuar con la URL resuelta en yt-dlp
-            url_to_download = resolved_url
-    else:
-        url_to_download = resolved_url
+            logger.warning(f"⚠️ TikWM falló, reintentando con yt-dlp como fallback: {e}")
+    
+    # Fallback a yt-dlp para todo lo demás (videos TikTok, IG, Spotify)
+    url_to_download = resolved_url
     
     # Template para yt-dlp (múltiples imágenes con numeración)
     output_template = f"{temp_dir}/{unique_id}_%(autonumber)s.%(ext)s"
