@@ -1,8 +1,4 @@
-import os
-import logging
-import uuid
-import random
-import yt_dlp
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +10,54 @@ USER_AGENTS = [
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
 ]
 
+def is_tiktok_slideshow(url):
+    """Detecta si es un slideshow de TikTok."""
+    return 'tiktok.com' in url and '/photo/' in url
+
+def download_tiktok_slideshow(url, temp_dir, unique_id):
+    """Descarga slideshow TikTok usando gallery-dl."""
+    logger.info("🖼️ Slideshow TikTok detectado. Usando gallery-dl...")
+    
+    # Template de salida para gallery-dl
+    output_template = f"{temp_dir}/{unique_id}_%(num)s.%(extension)s"
+    
+    cmd = [
+        'gallery-dl',
+        '--no-mtime',
+        '--no-download-archive',
+        '-o', f'filename={unique_id}_{{num}}.{{extension}}',
+        '-d', temp_dir,
+        url
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            # Buscar archivos descargados
+            downloaded_files = []
+            for f in sorted(os.listdir(temp_dir)):
+                if f.startswith(unique_id):
+                    downloaded_files.append(os.path.join(temp_dir, f))
+            
+            if downloaded_files:
+                logger.info(f"✅ gallery-dl descargó {len(downloaded_files)} imágenes")
+                return downloaded_files, "TikTok Slideshow"
+            else:
+                raise Exception("gallery-dl no descargó ningún archivo")
+        else:
+            raise Exception(f"gallery-dl error: {result.stderr}")
+    
+    except subprocess.TimeoutExpired:
+        raise Exception("gallery-dl timeout después de 60s")
+    except FileNotFoundError:
+        raise Exception("gallery-dl no está instalado")
+
 def download_media(url):
     """
     Descarga video/audio/fotos desde TikTok, Instagram y Spotify.
-    Para TikTok slideshows, descarga TODAS las imágenes.
+    Para TikTok slideshows, usa gallery-dl.
+    Para el resto, usa yt-dlp.
     Retorna: (lista_rutas_archivo, tipo_archivo, titulo)
     """
     
@@ -26,13 +66,23 @@ def download_media(url):
     
     unique_id = str(uuid.uuid4())
     
-    # Template para slideshows (múltiples imágenes con numeración)
+    # NUEVO: Detectar y manejar slideshow TikTok con gallery-dl
+    if is_tiktok_slideshow(url):
+        try:
+            downloaded_files, title = download_tiktok_slideshow(url, temp_dir, unique_id)
+            return downloaded_files, 'photo', title
+        except Exception as e:
+            logger.error(f"❌ gallery-dl falló: {e}")
+            logger.info("⚠️ Intentando con yt-dlp como fallback...")
+            # Continuar con yt-dlp como último recurso
+    
+    # Template para yt-dlp (múltiples imágenes con numeración)
     output_template = f"{temp_dir}/{unique_id}_%(autonumber)s.%(ext)s"
 
-    # Configuración simple y robusta
+    # Configuración simple y robusta para yt-dlp
     ydl_opts = {
         'outtmpl': output_template,
-        'noplaylist': False,  # Permitir "playlists" (slideshows de TikTok son tratados como playlist)
+        'noplaylist': False,  # Permitir "playlists" (slideshows)
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
@@ -48,7 +98,7 @@ def download_media(url):
     format_strategies = ['best', 'worst']
 
     def attempt_download(format_string):
-        """Intenta descargar con un formato específico."""
+        """Intenta descargar con un formato específico usando yt-dlp."""
         opts = ydl_opts.copy()
         opts['format'] = format_string
         
