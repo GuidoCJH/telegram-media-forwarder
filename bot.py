@@ -24,9 +24,21 @@ logger = logging.getLogger(__name__)
 
 # Cargar variables de entorno
 load_dotenv()
+def get_chat_id(env_var):
+    """Obtiene y limpia el ID del chat de las variables de entorno."""
+    val = os.getenv(env_var, '')
+    if not val:
+        return None
+    # Limpiar espacios y comillas comunes
+    val = val.strip().strip("'").strip('"')
+    # Corregir error común de doble guión (copy-paste) -> --100... a -100...
+    while val.startswith('--'):
+        val = val[1:]
+    return int(val)
+
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-SOURCE_CHAT_ID = int(os.getenv('SOURCE_CHAT_ID'))
-DESTINATION_CHAT_ID = int(os.getenv('DESTINATION_CHAT_ID'))
+SOURCE_CHAT_ID = get_chat_id('SOURCE_CHAT_ID')
+DESTINATION_CHAT_ID = get_chat_id('DESTINATION_CHAT_ID')
 
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
