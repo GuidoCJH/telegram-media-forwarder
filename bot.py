@@ -66,12 +66,21 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_type = "📄 Documento"
         
         if media_type:
-            # Reenviar el mensaje al canal/grupo destino
-            await message.forward(chat_id=DESTINATION_CHAT_ID)
-            logger.info(f"{media_type} reenviado desde {SOURCE_CHAT_ID} a {DESTINATION_CHAT_ID}")
+            try:
+                # Intentar reenviar (Mantiene "Reenviado de...")
+                await message.forward(chat_id=DESTINATION_CHAT_ID)
+                logger.info(f"✅ {media_type} reenviado (Forward) a {DESTINATION_CHAT_ID}")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo reenviar (Forward): {e}. Intentando copiar...")
+                # Fallback: Copiar contenido (Si falla forward por privacidad/permisos)
+                try:
+                    await message.copy(chat_id=DESTINATION_CHAT_ID)
+                    logger.info(f"✅ {media_type} copiado (Copy) a {DESTINATION_CHAT_ID}")
+                except Exception as e2:
+                    logger.error(f"❌ Error CRÍTICO: No se pudo ni reenviar ni copiar: {e2}")
     
     except Exception as e:
-        logger.error(f"Error al reenviar mensaje: {e}")
+        logger.error(f"❌ Error general en handle_media: {e}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
