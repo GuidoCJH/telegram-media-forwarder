@@ -4,6 +4,7 @@ import uuid
 import random
 import subprocess
 import httpx
+import yt_dlp
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,6 @@ def download_tiktok_slideshow(url, temp_dir, unique_id):
     # Usamos un formato específico de gallery-dl para asegurar que los archivos se guarden correctamente
     cmd = [
         'gallery-dl',
-        '--no-mtime',
-        '--no-download-archive',
         '-o', f'filename={unique_id}_{{num}}.{{extension}}',
         '-d', temp_dir,
         url
