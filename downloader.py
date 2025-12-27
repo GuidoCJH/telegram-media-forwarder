@@ -5,6 +5,7 @@ import random
 import subprocess
 import httpx
 import yt_dlp
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,69 @@ def download_tiktok_slideshow_tikwm(url, temp_dir, unique_id):
     except Exception as e:
         logger.error(f"❌ Error en TikWM: {e}")
         raise e
+
+def download_instagram_via_api(url, temp_dir, unique_id):
+    """
+    Descarga media de Instagram usando APIs de terceros (SaveIG/SnapInsta) 
+    para saltar el bloqueo de contenido sensible.
+    """
+    logger.info("📸 Usando API de respaldo para Instagram (Sensitive Content Bypass)...")
+    
+    # Lista de posibles endpoints para SaveIG
+    api_endpoints = [
+        "https://api.v02.saveig.app/api/info",
+        "https://v3.saveig.app/api/info"
+    ]
+    
+    for api_url in api_endpoints:
+        try:
+            full_url = f"{api_url}?url={url}"
+            logger.debug(f"🔍 Probando API: {api_url}")
+            
+            with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+                resp = client.get(full_url)
+                if resp.status_code != 200:
+                    continue
+                    
+                data = resp.json()
+                # La estructura de SaveIG suele tener 'medias' o 'items'
+                items = data.get('medias') or data.get('items', [])
+                title = data.get('title', 'Instagram Media')
+                
+                if not items:
+                    logger.warning(f"⚠️ API {api_url} no devolvió media.")
+                    continue
+
+                downloaded_files = []
+                for i, item in enumerate(items):
+                    # El campo 'url' suele estar en el item
+                    # Puede ser 'url', 'src', o estar dentro de un objeto
+                    media_url = item.get('url') or item.get('src')
+                    if not media_url:
+                        continue
+                        
+                    # Determinar extensión (Instagram suele usar jpg/mp4)
+                    is_video = item.get('type') == 'video' or '.mp4' in media_url
+                    ext = "mp4" if is_video else "jpg"
+                    
+                    file_path = os.path.join(temp_dir, f"{unique_id}_{i}.{ext}")
+                    
+                    logger.debug(f"⬇️ Bajando media {i+1}/{len(items)}")
+                    r = client.get(media_url)
+                    if r.status_code == 200:
+                        with open(file_path, 'wb') as f:
+                            f.write(r.content)
+                        downloaded_files.append(file_path)
+                
+                if downloaded_files:
+                    logger.info(f"✅ Descargado vía API: {len(downloaded_files)} archivos")
+                    return downloaded_files, title
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Error consultando API de IG {api_url}: {e}")
+            continue
+            
+    return None, None
 
 def download_media(url):
     """
@@ -204,6 +268,19 @@ def download_media(url):
                 ydl_opts['user_agent'] = random.choice(USER_AGENTS)
             
             continue
+
+    # SI LLEGAMOS AQUÍ, YT-DLP FALLÓ.
+    # NUEVO: Si es Instagram, intentar con el motor de API de respaldo
+    if 'instagram.com' in resolved_url:
+        try:
+            downloaded_files, title = download_instagram_via_api(resolved_url, temp_dir, unique_id)
+            if downloaded_files:
+                # Determinar tipo
+                ext = os.path.splitext(downloaded_files[0])[1].lower()
+                media_type = 'video' if ext == '.mp4' else 'photo'
+                return downloaded_files, media_type, title
+        except Exception as api_err:
+            logger.error(f"❌ El motor de API de Instagram también falló: {api_err}")
 
     # Si llegamos aquí, todos los intentos fallaron
     logger.error(f"❌ Error descargando después de {len(format_strategies)} intentos")
