@@ -214,7 +214,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif user_success:
                 await context.bot.send_message(
                     chat_id=user_chat_id,
-                    text="✅ Descarga completada y enviada a ti\n⚠️ Error enviando al canal destino"
+                    text="✅ Descarga completada y enviada a ti"
                 )
         else:
              logger.warning(f"⚠️ No se pudo descargar contenido de: {url}")
