@@ -201,20 +201,14 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # 3. Mensaje de confirmación al usuario
             if user_success and dest_success:
-                success_msg = "✅ ¡Descarga completada!\n\n"
-                if user_chat_id != DESTINATION_CHAT_ID:
-                    success_msg += f"📤 Enviado a ti y al canal destino"
-                else:
-                    success_msg += f"📤 Enviado correctamente"
-                
                 await context.bot.send_message(
                     chat_id=user_chat_id,
-                    text=success_msg
+                    text="✅ Descarga completada"
                 )
             elif user_success:
                 await context.bot.send_message(
                     chat_id=user_chat_id,
-                    text="✅ Descarga completada y enviada a ti"
+                    text="✅ Descarga completada"
                 )
         else:
              logger.warning(f"⚠️ No se pudo descargar contenido de: {url}")
