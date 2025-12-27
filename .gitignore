@@ -1,0 +1,30 @@
+# Environment variables (SENSIBLE - no subir)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+
+# Logs y PID
+*.log
+*.pid
+bot.log
+bot.pid
+nohup.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backups
+*~
+*.bak
