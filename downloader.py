@@ -16,20 +16,23 @@ USER_AGENTS = [
 
 def download_media(url):
     """
-    Descarga video/audio desde TikTok, Instagram y Spotify únicamente.
-    Retorna: (ruta_archivo, tipo_archivo, titulo)
+    Descarga video/audio/fotos desde TikTok, Instagram y Spotify.
+    Para TikTok slideshows, descarga TODAS las imágenes.
+    Retorna: (lista_rutas_archivo, tipo_archivo, titulo)
     """
     
     temp_dir = "downloads"
     os.makedirs(temp_dir, exist_ok=True)
     
     unique_id = str(uuid.uuid4())
-    output_template = f"{temp_dir}/{unique_id}.%(ext)s"
+    
+    # Template para slideshows (múltiples imágenes con numeración)
+    output_template = f"{temp_dir}/{unique_id}_%(autonumber)s.%(ext)s"
 
     # Configuración simple y robusta
     ydl_opts = {
         'outtmpl': output_template,
-        'noplaylist': True,
+        'noplaylist': False,  # Permitir "playlists" (slideshows de TikTok son tratados como playlist)
         'quiet': True,
         'no_warnings': True,
         'geo_bypass': True,
@@ -52,26 +55,53 @@ def download_media(url):
         with yt_dlp.YoutubeDL(opts) as ydl:
             logger.info(f"⬇️ Descargando: {url[:50]}... (formato: {format_string})")
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            title = info.get('title', 'Media')
             
-            # Buscar archivo descargado
-            if not os.path.exists(filename):
-                for f in os.listdir(temp_dir):
-                    if f.startswith(unique_id):
-                        filename = os.path.join(temp_dir, f)
-                        break
-            
-            return filename, title
+            # Detectar si es un slideshow/playlist (múltiples archivos)
+            if 'entries' in info:
+                # Es una playlist/slideshow
+                title = info.get('title', 'TikTok Slideshow')
+                downloaded_files = []
+                
+                for entry in info['entries']:
+                    if entry:
+                        filename = ydl.prepare_filename(entry)
+                        if os.path.exists(filename):
+                            downloaded_files.append(filename)
+                
+                # Si no encontramos con prepare_filename, buscar en directorio
+                if not downloaded_files:
+                    for f in sorted(os.listdir(temp_dir)):
+                        if f.startswith(unique_id):
+                            downloaded_files.append(os.path.join(temp_dir, f))
+                
+                return downloaded_files, title
+            else:
+                # Es un solo archivo
+                filename = ydl.prepare_filename(info)
+                title = info.get('title', 'Media')
+                
+                # Buscar archivo descargado
+                if not os.path.exists(filename):
+                    for f in os.listdir(temp_dir):
+                        if f.startswith(unique_id):
+                            filename = os.path.join(temp_dir, f)
+                            break
+                
+                return [filename], title
 
     # Intentar descarga con estrategias simples
     last_error = None
     for i, format_str in enumerate(format_strategies):
         try:
-            filename, title = attempt_download(format_str)
+            downloaded_files, title = attempt_download(format_str)
             
-            # Determinar tipo de archivo
-            ext = os.path.splitext(filename)[1].lower()
+            if not downloaded_files:
+                continue
+            
+            # Determinar tipo basado en el primer archivo
+            first_file = downloaded_files[0]
+            ext = os.path.splitext(first_file)[1].lower()
+            
             if ext in ['.mp4', '.mov', '.mkv', '.webm', '.avi', '.flv']:
                 media_type = 'video'
             elif ext in ['.mp3', '.m4a', '.opus', '.ogg', '.wav', '.aac']:
@@ -81,8 +111,8 @@ def download_media(url):
             else:
                 media_type = 'video'
 
-            logger.info(f"✅ Descarga exitosa: {filename} ({media_type})")
-            return filename, media_type, title
+            logger.info(f"✅ Descarga exitosa: {len(downloaded_files)} archivo(s) ({media_type})")
+            return downloaded_files, media_type, title
 
         except Exception as e:
             error_str = str(e).lower()

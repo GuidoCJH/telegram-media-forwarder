@@ -124,38 +124,61 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🔗 Detectado enlace: {url}")
 
     # Descargar
-    file_path, media_type, title = None, None, None
+    downloaded_files = None
     try:
-        # Enviar mensaje de "Procesando..." al log o admin si se desea
         # await context.bot.send_message(chat_id=DESTINATION_CHAT_ID, text=f"⏳ Procesando: {url}")
         
-        file_path, media_type, title = download_media(url)
+        downloaded_files, media_type, title = download_media(url)
         
-        if file_path and os.path.exists(file_path):
-            caption = f"🎥 {title}\n🔗 {url}"
+        if downloaded_files and all(os.path.exists(f) for f in downloaded_files):
+            # Caption SIN URL (según solicitud del usuario)
+            caption = f"🎥 {title}"
             
             try:
-                if media_type == 'video':
+                if media_type == 'photo' and len(downloaded_files) > 1:
+                    # TikTok Slideshow: Enviar como álbum de fotos
+                    from telegram import InputMediaPhoto
+                    media_group = []
+                    
+                    for i, file_path in enumerate(downloaded_files[:10]):  # Límite 10 fotos por grupo
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=open(file_path, 'rb'),
+                                caption=caption if i == 0 else None  # Solo primera foto con caption
+                            )
+                        )
+                    
+                    await context.bot.send_media_group(
+                        chat_id=DESTINATION_CHAT_ID,
+                        media=media_group
+                    )
+                    logger.info(f"✅ {len(downloaded_files)} fotos enviadas como álbum a {DESTINATION_CHAT_ID}")
+                
+                elif media_type == 'video':
                     await context.bot.send_video(
                         chat_id=DESTINATION_CHAT_ID,
-                        video=open(file_path, 'rb'),
+                        video=open(downloaded_files[0], 'rb'),
                         caption=caption,
                         supports_streaming=True
                     )
+                    logger.info(f"✅ Video enviado a {DESTINATION_CHAT_ID}")
+                    
                 elif media_type == 'audio':
                     await context.bot.send_audio(
                         chat_id=DESTINATION_CHAT_ID,
-                        audio=open(file_path, 'rb'),
+                        audio=open(downloaded_files[0], 'rb'),
                         caption=caption
                     )
+                    logger.info(f"✅ Audio enviado a {DESTINATION_CHAT_ID}")
+                    
                 elif media_type == 'photo':
+                    # Una sola foto
                     await context.bot.send_photo(
                         chat_id=DESTINATION_CHAT_ID,
-                        photo=open(file_path, 'rb'),
+                        photo=open(downloaded_files[0], 'rb'),
                         caption=caption
                     )
-                
-                logger.info(f"✅ Contenido descargado enviado a {DESTINATION_CHAT_ID}")
+                    logger.info(f"✅ Foto enviada a {DESTINATION_CHAT_ID}")
 
             except Exception as e:
                 logger.error(f"❌ Error enviando archivo a Telegram: {e}")
@@ -166,10 +189,12 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Error en handle_url: {e}")
     
     finally:
-        # Limpieza
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-            logger.info(f"🗑️ Archivo temporal eliminado: {file_path}")
+        # Limpieza de todos los archivos descargados
+        if downloaded_files:
+            for file_path in downloaded_files:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"🗑️ Archivo temporal eliminado: {file_path}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
