@@ -33,31 +33,41 @@ def download_media(url):
     if "instagram.com" in url or "tiktok.com" in url:
         ydl_opts['format'] = 'best'
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    def run_download(options):
+        with yt_dlp.YoutubeDL(options) as ydl:
             logger.info(f"⬇️ Iniciando descarga: {url}")
             info = ydl.extract_info(url, download=True)
-            
-            # Obtener path del archivo descargado
             filename = ydl.prepare_filename(info)
             title = info.get('title', 'Media')
             
-            # Verificar si existe (yt-dlp a veces cambia la extensión)
             if not os.path.exists(filename):
-                # Buscar cualquier archivo que empiece con el ID
                 for f in os.listdir(temp_dir):
                     if f.startswith(unique_id):
                         filename = os.path.join(temp_dir, f)
                         break
-            
-            # Determinar tipo
-            ext = os.path.splitext(filename)[1].lower()
-            media_type = 'video' if ext in ['.mp4', '.mov', '.mkv', '.webm'] else 'audio'
-            if ext in ['.jpg', '.jpeg', '.png', '.webp']:
-                media_type = 'photo'
+            return filename, title
 
-            logger.info(f"✅ Descarga completada: {filename} ({media_type})")
-            return filename, media_type, title
+    try:
+        try:
+            # Intentar descarga con opciones por defecto (mejor calidad / posible fusión)
+            filename, title = run_download(ydl_opts)
+        except Exception as e:
+            # Si falla por falta de FFMPEG (error de fusión), reintentar con 'best' (un solo archivo)
+            if "ffmpeg" in str(e).lower() and "merge" in str(e).lower():
+                logger.warning("⚠️ FFMPEG no detectado. Reintentando con formato 'best' (sin fusión)...")
+                ydl_opts['format'] = 'best'
+                filename, title = run_download(ydl_opts)
+            else:
+                raise e # Si es otro error, lanzarlo
+            
+        # Determinar tipo
+        ext = os.path.splitext(filename)[1].lower()
+        media_type = 'video' if ext in ['.mp4', '.mov', '.mkv', '.webm'] else 'audio'
+        if ext in ['.jpg', '.jpeg', '.png', '.webp']:
+            media_type = 'photo'
+
+        logger.info(f"✅ Descarga completada: {filename} ({media_type})")
+        return filename, media_type, title
 
     except Exception as e:
         logger.error(f"❌ Error descargando {url}: {e}")
