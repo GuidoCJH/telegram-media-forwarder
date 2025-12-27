@@ -1,4 +1,8 @@
+import os
+import logging
+import uuid
 import random
+import yt_dlp
 
 logger = logging.getLogger(__name__)
 
