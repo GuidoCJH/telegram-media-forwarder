@@ -89,7 +89,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"❌ Error CRÍTICO: No se pudo ni reenviar ni copiar: {e2}")
     
     except Exception as e:
-    except Exception as e:
         logger.error(f"❌ Error general en handle_media: {e}")
 
 
