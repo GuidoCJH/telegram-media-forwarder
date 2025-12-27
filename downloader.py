@@ -1,4 +1,9 @@
+import os
+import logging
+import uuid
+import random
 import subprocess
+import yt_dlp
 
 logger = logging.getLogger(__name__)
 
